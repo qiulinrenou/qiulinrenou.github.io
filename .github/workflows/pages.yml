@@ -36,6 +36,16 @@ jobs:
           npx hexo clean
           npx hexo generate
 
+      - name: Verify generated site
+        run: |
+          echo "PWD=$(pwd)"
+          ls -la
+          ls -la public || true
+          echo "index size:"
+          wc -c public/index.html || true
+          echo "index head:"
+          sed -n '1,20p' public/index.html || true
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
