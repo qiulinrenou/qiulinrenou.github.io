@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 const imagesRoot = "source/images";
-const outFile = "source/gallery/index.md";
+const outFile = "source/gallery/index.html";
 const exts = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
 
 async function walk(dir) {
@@ -20,7 +20,6 @@ function toSiteUrl(filePath) {
   return "/" + filePath.replaceAll("\\", "/").replace(/^source\//, "");
 }
 
-
 function parseSimpleYaml(text) {
   const obj = {};
   for (const line of text.split(/\r?\n/)) {
@@ -34,7 +33,6 @@ function parseSimpleYaml(text) {
     let val = s.slice(i + 1).trim();
 
     // 去掉行内注释：key: value # comment
-    // 简化规则：如果 val 不是以引号开头，则把第一个 # 及后面都当注释去掉
     if (!(val.startsWith('"') || val.startsWith("'"))) {
       const hash = val.indexOf("#");
       if (hash !== -1) val = val.slice(0, hash).trim();
@@ -112,13 +110,30 @@ async function main() {
     albums.get(albumDir).push(imgPath);
   }
 
-  // 相册目录排序（如需按 album.yml 的 date 排序，可以后续再改）
-  const albumDirs = Array.from(albums.keys()).sort((a, b) =>
-    a.localeCompare(b, "en", { numeric: true })
+  const albumDirs = Array.from(albums.keys());
+
+  // 读取相册元数据用于排序
+  const albumInfo = await Promise.all(
+    albumDirs.map(async (dir) => {
+      const meta = await readAlbumMeta(dir);
+      return { dir, date: meta.date || "" };
+    })
   );
 
+  // date 倒序（YYYY-MM-DD 字符串可直接比较），无 date 排最后
+  albumInfo.sort((a, b) => {
+    if (a.date && b.date) {
+      if (a.date !== b.date) return b.date.localeCompare(a.date);
+    } else if (a.date && !b.date) return -1;
+    else if (!a.date && b.date) return 1;
+
+    return a.dir.localeCompare(b.dir, "en", { numeric: true });
+  });
+
+  const sortedAlbumDirs = albumInfo.map((x) => x.dir);
+
   const sections = [];
-  for (const albumDir of albumDirs) {
+  for (const albumDir of sortedAlbumDirs) {
     const albumMeta = await readAlbumMeta(albumDir);
     const albumNameFallback = path.basename(albumDir);
 
@@ -134,34 +149,47 @@ async function main() {
       .map((p) => {
         const url = toSiteUrl(p);
         const alt = path.parse(p).name;
-        return `
-  <figure class="gallery-card">
-    <a class="gallery-link" href="${url}" target="_blank" rel="noopener">
-      <img src="${url}" alt="${escapeHtml(alt)}">
-    </a>
-  </figure>`.trim();
+
+        const html = `<figure class="gallery-card">
+  <a class="gallery-link" href="${url}" target="_blank" rel="noopener">
+    <img src="${url}" alt="${escapeHtml(alt)}">
+  </a>
+</figure>`;
+
+        return html
+          .split("\n")
+          .map((line) => "      " + line) // 6 spaces
+          .join("\n");
       })
       .join("\n");
 
     sections.push(`
 <section class="album">
-  <header class="album-header">
-    <div class="album-title">${escapeHtml(albumTitle)}</div>
-    ${albumDate ? `<div class="album-date">${escapeHtml(albumDate)}</div>` : ""}
-    ${albumDesc ? `<div class="album-desc">${escapeHtml(albumDesc)}</div>` : ""}
-  </header>
-  <div class="gallery-grid">
+  <details class="album-details">
+    <summary class="album-header">
+      <span class="album-arrow" aria-hidden="true"></span>
+      <span class="album-header-text">
+        <span class="album-title">${escapeHtml(albumTitle)}</span>
+        ${albumDate ? `<span class="album-date">${escapeHtml(albumDate)}</span>` : ""}
+        ${albumDesc ? `<span class="album-desc">${escapeHtml(albumDesc)}</span>` : ""}
+      </span>
+    </summary>
+    <div class="gallery-grid">
 ${cards}
-  </div>
+    </div>
+  </details>
 </section>`.trim());
   }
 
   const md = `---
 title: 相册
 date: ${new Date().toISOString().slice(0, 10)}
+layout: page
 ---
 
+<div class="gallery-page">
 ${sections.join("\n\n")}
+</div>
 `;
 
   await fs.writeFile(outFile, md, "utf8");
