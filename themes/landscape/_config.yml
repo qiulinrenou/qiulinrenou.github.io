@@ -3,8 +3,9 @@
 # ===============
 # Navigation menu
 menu:
-  Home: /
-  Archives: /archives
+  首页: /
+  归档: /archives
+  相册: /gallery/
 # RSS link
 rss: /atom.xml
 # Path of title banner image of page top
