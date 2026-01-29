@@ -20,22 +20,34 @@ function toSiteUrl(filePath) {
   return "/" + filePath.replaceAll("\\", "/").replace(/^source\//, "");
 }
 
-// 极简 YAML：只支持 key: value（不支持嵌套/数组）
+
 function parseSimpleYaml(text) {
   const obj = {};
   for (const line of text.split(/\r?\n/)) {
-    const s = line.trim();
+    let s = line.trim();
     if (!s || s.startsWith("#")) continue;
+
     const i = s.indexOf(":");
     if (i === -1) continue;
+
     const key = s.slice(0, i).trim();
     let val = s.slice(i + 1).trim();
+
+    // 去掉行内注释：key: value # comment
+    // 简化规则：如果 val 不是以引号开头，则把第一个 # 及后面都当注释去掉
+    if (!(val.startsWith('"') || val.startsWith("'"))) {
+      const hash = val.indexOf("#");
+      if (hash !== -1) val = val.slice(0, hash).trim();
+    }
+
+    // 去掉包裹引号
     if (
       (val.startsWith('"') && val.endsWith('"')) ||
       (val.startsWith("'") && val.endsWith("'"))
     ) {
       val = val.slice(1, -1);
     }
+
     obj[key] = val;
   }
   return obj;

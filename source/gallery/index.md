@@ -5,8 +5,8 @@ date: 2026-01-29
 
 <section class="album">
   <header class="album-header">
-    <div class="album-title">2025-12-7--photo</div>
-    
+    <div class="album-title">第一张合照1</div>
+    <div class="album-date">2025-12-07</div>
     
   </header>
   <div class="gallery-grid">
