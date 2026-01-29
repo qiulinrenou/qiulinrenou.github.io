@@ -10,7 +10,7 @@ async function walk(dir) {
   const files = [];
   for (const e of entries) {
     const p = path.join(dir, e.name);
-    if (e.isDirectory()) files.push(...await walk(p));
+    if (e.isDirectory()) files.push(...(await walk(p)));
     else files.push(p);
   }
   return files;
@@ -30,7 +30,10 @@ function parseSimpleYaml(text) {
     if (i === -1) continue;
     const key = s.slice(0, i).trim();
     let val = s.slice(i + 1).trim();
-    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+    if (
+      (val.startsWith('"') && val.endsWith('"')) ||
+      (val.startsWith("'") && val.endsWith("'"))
+    ) {
       val = val.slice(1, -1);
     }
     obj[key] = val;
@@ -38,6 +41,7 @@ function parseSimpleYaml(text) {
   return obj;
 }
 
+// 仍保留：单张图片的元数据（可选，不用也没事）
 async function readMeta(imgPath) {
   const base = imgPath.replace(path.extname(imgPath), "");
   for (const p of [base + ".yml", base + ".yaml", base + ".json"]) {
@@ -50,6 +54,25 @@ async function readMeta(imgPath) {
     }
   }
   return {};
+}
+
+// 相册（目录）元数据：source/images/<album>/album.yml|yaml|json
+async function readAlbumMeta(albumDir) {
+  for (const p of ["album.yml", "album.yaml", "album.json"]) {
+    const file = path.join(albumDir, p);
+    try {
+      const raw = await fs.readFile(file, "utf8");
+      const data = p.endsWith(".json") ? JSON.parse(raw) : parseSimpleYaml(raw);
+      return {
+        title: (data.title || "").toString().trim(),
+        date: (data.date || "").toString().trim(),
+        desc: (data.desc || "").toString().trim(),
+      };
+    } catch {
+      // ignore
+    }
+  }
+  return { title: "", date: "", desc: "" };
 }
 
 function escapeHtml(s) {
@@ -69,26 +92,56 @@ async function main() {
     .filter((f) => exts.has(path.extname(f).toLowerCase()))
     .sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
 
-  const items = [];
+  // albumDir -> [imgPath...]
+  const albums = new Map();
   for (const imgPath of files) {
-    const url = toSiteUrl(imgPath);
-    const meta = await readMeta(imgPath);
+    const albumDir = path.dirname(imgPath);
+    if (!albums.has(albumDir)) albums.set(albumDir, []);
+    albums.get(albumDir).push(imgPath);
+  }
 
-    const title = meta.title || path.parse(imgPath).name;
-    const date = meta.date || "";
-    const desc = meta.desc || "";
+  // 相册目录排序（如需按 album.yml 的 date 排序，可以后续再改）
+  const albumDirs = Array.from(albums.keys()).sort((a, b) =>
+    a.localeCompare(b, "en", { numeric: true })
+  );
 
-    items.push(`
+  const sections = [];
+  for (const albumDir of albumDirs) {
+    const albumMeta = await readAlbumMeta(albumDir);
+    const albumNameFallback = path.basename(albumDir);
+
+    const albumTitle = albumMeta.title || albumNameFallback;
+    const albumDate = albumMeta.date || "";
+    const albumDesc = albumMeta.desc || "";
+
+    const imgs = albums
+      .get(albumDir)
+      .sort((a, b) => a.localeCompare(b, "en", { numeric: true }));
+
+    const cards = imgs
+      .map((p) => {
+        const url = toSiteUrl(p);
+        const alt = path.parse(p).name;
+        return `
   <figure class="gallery-card">
     <a class="gallery-link" href="${url}" target="_blank" rel="noopener">
-      <img src="${url}" alt="${escapeHtml(title)}">
+      <img src="${url}" alt="${escapeHtml(alt)}">
     </a>
-    <figcaption class="gallery-meta">
-      <div class="gallery-title">${escapeHtml(title)}</div>
-      ${date ? `<div class="gallery-date">${escapeHtml(date)}</div>` : ""}
-      ${desc ? `<div class="gallery-desc">${escapeHtml(desc)}</div>` : ""}
-    </figcaption>
-  </figure>`.trim());
+  </figure>`.trim();
+      })
+      .join("\n");
+
+    sections.push(`
+<section class="album">
+  <header class="album-header">
+    <div class="album-title">${escapeHtml(albumTitle)}</div>
+    ${albumDate ? `<div class="album-date">${escapeHtml(albumDate)}</div>` : ""}
+    ${albumDesc ? `<div class="album-desc">${escapeHtml(albumDesc)}</div>` : ""}
+  </header>
+  <div class="gallery-grid">
+${cards}
+  </div>
+</section>`.trim());
   }
 
   const md = `---
@@ -96,13 +149,13 @@ title: 相册
 date: ${new Date().toISOString().slice(0, 10)}
 ---
 
-<div class="gallery-grid">
-${items.join("\n")}
-</div>
+${sections.join("\n\n")}
 `;
 
   await fs.writeFile(outFile, md, "utf8");
-  console.log(`Generated ${outFile} with ${files.length} images`);
+  console.log(
+    `Generated ${outFile} with ${files.length} images in ${albumDirs.length} albums`
+  );
 }
 
 main().catch((err) => {
