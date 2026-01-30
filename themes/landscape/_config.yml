@@ -3,8 +3,7 @@
 # ===============
 # Navigation menu
 menu:
-  首页: /
-  归档: /archives
+  归档: /archives/
   相册: /gallery/
 # RSS link
 rss: /atom.xml
